@@ -92,6 +92,76 @@ std::vector<float> GenerateDistanceMap(const int width, const int height,
   return distance_map;
 }
 
+std::vector<float> ApplyDistanceTransform1D(const int width,
+                                            const std::vector<float>& map) {
+  constexpr auto kFloatMax = std::numeric_limits<float>::max();
+  std::vector<float> distance_map(width);
+
+  auto compute_intersection = [](const int q, const int p,
+                                 const float* const data) {
+    return (q * q + data[q] - p * p - data[p]) / (2 * q - 2 * p);
+  };
+
+  struct Parabola {
+    int vertex_index{0};
+    float start{kFloatMax};
+  };
+  std::vector<Parabola> envelope(width);
+
+  envelope[0].vertex_index = 0;
+  envelope[0].start = -kFloatMax;
+  envelope[1].start = kFloatMax;
+  int k = 0;
+
+  for (auto q = 1; q < width; ++q) {
+    // std::cerr << "q: " << q << std::endl;
+    while (true) {
+      float s = compute_intersection(q, envelope[k].vertex_index, map.data());
+      if (s <= envelope[k].start)
+        k--;
+      else {
+        envelope[++k].vertex_index = q;
+        envelope[k].start = s;
+        envelope[k + 1].start = kFloatMax;
+        // std::cerr << "breaks at k: " << k << std::endl;
+        break;
+      }
+    }
+    k = 0;
+    for (auto q = 0; q < width; ++q) {
+      while (envelope[k + 1].start < q) k++;
+      distance_map[q] = std::hypot(q - envelope[k].vertex_index,
+                                   map[envelope[k].vertex_index]);
+    }
+  }
+  return distance_map;
+}
+
+std::vector<float> ApplyDistanceTransform2D(const int width, const int height,
+                                            const std::vector<uint8_t>& map) {
+  std::vector<float> distance_map(width * height);
+  constexpr auto kFloatMax = std::numeric_limits<float>::max();
+  int size = std::max(width, height);
+  std::vector<float> float_map(size), distance_map_1d(size);
+
+  for (auto y = 0; y < height; ++y) {
+    auto* ptr = &map[y * width];
+    for (auto x = 0; x < width; ++x) float_map[x] = *ptr++ ? kFloatMax : 0.f;
+    distance_map_1d = ApplyDistanceTransform1D(width, float_map);
+    memcpy(&distance_map[y * width], &distance_map_1d[0],
+           width * sizeof(float));
+  }
+
+  for (auto x = 0; x < width; ++x) {
+    auto* ptr = &distance_map[x];
+    for (auto y = 0; y < height; y++, ptr += width) float_map[y] = *ptr;
+    distance_map_1d = ApplyDistanceTransform1D(height, float_map);
+    ptr = &distance_map[x];
+    for (auto y = 0; y < height; y++, ptr += width) *ptr = distance_map_1d[y];
+  }
+  return distance_map;
+}
+
 int main(void) {
   const auto width = 200;
   const auto height = 200;
@@ -104,7 +174,8 @@ int main(void) {
   for (auto y = 75; y < 125; ++y)
     for (auto x = 75; x < 125; ++x) map[x + width * y] = 0;
 
-  const auto distance_map = GenerateDistanceMap(width, height, map);
+  // const auto distance_map = GenerateDistanceMap(width, height, map);
+  const auto distance_map = ApplyDistanceTransform2D(width, height, map);
 
   auto max_distance = 0.f;
   for (const auto& distance : distance_map)
