@@ -1,3 +1,4 @@
+#include <chrono>
 #include <cinttypes>
 #include <deque>
 #include <iostream>
@@ -127,13 +128,13 @@ std::vector<float> ApplyDistanceTransform1D(const int width,
         break;
       }
     }
-    k = 0;
-    for (auto q = 0; q < width; ++q) {
-      while (envelope[k + 1].start < q) k++;
-      distance_map[q] = std::hypot(q - envelope[k].vertex_index,
-                                   map[envelope[k].vertex_index]);
-    }
   }
+  k = 0;
+  for (auto q = 0; q < width; ++q) {
+    while (envelope[k + 1].start < q) k++;
+    distance_map[q] =
+        std::hypot(q - envelope[k].vertex_index, map[envelope[k].vertex_index]);
+    }
   return distance_map;
 }
 
@@ -174,19 +175,34 @@ int main(void) {
   for (auto y = 75; y < 125; ++y)
     for (auto x = 75; x < 125; ++x) map[x + width * y] = 0;
 
-  // const auto distance_map = GenerateDistanceMap(width, height, map);
-  const auto distance_map = ApplyDistanceTransform2D(width, height, map);
+  auto ts = std::chrono::steady_clock::now();
+  const auto distance_map_pg = GenerateDistanceMap(width, height, map);
+  auto tm = std::chrono::steady_clock::now();
+  const auto distance_map_dt = ApplyDistanceTransform2D(width, height, map);
+  auto te = std::chrono::steady_clock::now();
+  auto pg_duration = (tm - ts).count() * 1e-6;
+  auto dt_duration = (te - tm).count() * 1e-6;
+  std::cerr << "PG duration: " << pg_duration << " ms\n";
+  std::cerr << "DT duration: " << dt_duration << " ms\n";
 
   auto max_distance = 0.f;
-  for (const auto& distance : distance_map)
+  for (const auto& distance : distance_map_pg)
     max_distance = std::max(max_distance, distance);
 
   cv::Mat map_image = ConvertMapToCvMat(width, height, map.data());
   cv::Mat distance_map_image = ConvertDistanceMapToCvMat(
-      width, height, max_distance, distance_map.data());
+      width, height, max_distance, distance_map_pg.data());
+  max_distance = 0.f;
+  for (const auto& distance : distance_map_dt)
+    max_distance = std::max(max_distance, distance);
+  cv::Mat distance_map_image_dt = ConvertDistanceMapToCvMat(
+      width, height, max_distance, distance_map_dt.data());
 
   cv::imshow("map", map_image);
-  cv::imshow("distance_map", distance_map_image);
+  cv::imshow("distance_map_pg", distance_map_image);
+  cv::imshow("distance_map_dt", distance_map_image_dt);
+  cv::imwrite("dt_pg.png", distance_map_image);
+  cv::imwrite("dt_dm.png", distance_map_image_dt);
   cv::waitKey(0);
   return 0;
 }
